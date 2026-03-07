@@ -1,0 +1,6 @@
+node_modules/
+.env
+.env.local
+*.log
+*.b64
+models.json
