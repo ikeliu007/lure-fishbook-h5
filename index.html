@@ -10,7 +10,7 @@
 <style>
 /* ===== 全局 ===== */
 /* 应用版本 stamp (1.0.1) - 请随更新递增，防止浏览器缓存 */
-window.APP_VERSION = '1.0.1-20260309';
+window.APP_VERSION = '1.0.1-exp1-20260309';
 // AI_ENDPOINT: 若设置，AI 识别请求发到此地址（默认同源）
 // 可在 VPS 部署时由 server.js 注入，避免大图通过 SSH 隧道中转
 window.AI_ENDPOINT = window.AI_ENDPOINT || window.location.origin;
@@ -1897,8 +1897,20 @@ function _aiApply2(el){
 function retryRecognize(){
   if(window._catchPhotoData) startFishRecognition(window._catchPhotoData);
 }
+  clearTimeout(t._timer);
+// 定位权限状态检查
+function checkGeolocationPermission() {
+  if (typeof navigator.permissions !== 'undefined') {
+    return navigator.permissions.query({ name: 'geolocation' })
+      .then((result) => {
+        return result.state; // 'granted', 'denied', 'prompt'
+      })
+      .catch(() => 'unknown');
+  }
+  return Promise.resolve('unknown');
+}
 
-// GPS定位
+// GPS定位 - 增强版本
 function getLocation(){
   const btn = document.getElementById('locate-btn');
   const status = document.getElementById('location-status');
@@ -1912,63 +1924,59 @@ function getLocation(){
   status.textContent = '定位中...';
   status.style.color = '#888';
 
-  navigator.geolocation.getCurrentPosition(
-    function(pos){
-      const lat = pos.coords.latitude.toFixed(6);
-      const lng = pos.coords.longitude.toFixed(6);
-      window._catchCoords = {lat, lng};
-      btn.textContent = '✅';
-      btn.disabled = false;
-      status.textContent = '';
-      document.getElementById('coords-display').textContent = lat + ', ' + lng;
-      document.getElementById('share-location-row').style.display = 'flex';
-      document.getElementById('share-location-tip').style.display = 'block';
-      // 反查地名（仅展示，不强制）
-      fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&accept-language=zh')
-        .then(r=>r.json())
-        .then(d=>{
-          if(d&&d.display_name){
-            const parts = d.display_name.split(',');
-            const name = parts.slice(0,3).join(' ').trim();
-            document.getElementById('input-location').value = name;
-          }
-        }).catch(()=>{});
-    },
-    function(err){
+  // 检查权限状态，如果已拒绝，直接提示
+  checkGeolocationPermission().then(permState => {
+    if (permState === 'denied') {
       btn.textContent = '📍';
       btn.disabled = false;
-      const msgs = {
-        1: '用户拒绝授权（请确保已在浏览器设置中允许定位权限）',
-        2: '无法获取位置（可能因网络或设备问题）',
-        3: '定位超时（10秒无响应）'
-      };
-      console.warn("location error", err.code, err.message);
-      status.textContent = '❌ 定位失败：' + (msgs[err.code]||'未知错误');
+      status.innerHTML = '❌ 定位权限已被拒绝<br><small>请在微信/浏览器【设置】中允许位置权限后再试</small>';
       status.style.color = '#f66';
-    },
-    {timeout:10000, enableHighAccuracy:true}
-  );
-}
+      return;
+    }
 
-function onShareCoordsToggle(cb){
-  const tip = document.getElementById('share-location-tip');
-  tip.style.display = 'block';
-  if(cb.checked){
-    tip.textContent = '✅ 将附带精确坐标到广场帖子（其他人可看到钓点位置）';
-    tip.style.color = '#4CAF50';
-  } else {
-    tip.textContent = '⚠️ 精确坐标不会对外分享，仅记录地名';
-    tip.style.color = '#888';
-  }
+    // 正常调用
+    navigator.geolocation.getCurrentPosition(
+      function(pos){
+        const lat = pos.coords.latitude.toFixed(6);
+        const lng = pos.coords.longitude.toFixed(6);
+        window._catchCoords = {lat, lng};
+        btn.textContent = '✅';
+        btn.disabled = false;
+        status.textContent = '';
+        document.getElementById('coords-display').textContent = lat + ', ' + lng;
+        document.getElementById('share-location-row').style.display = 'flex';
+        document.getElementById('share-location-tip').style.display = 'block';
+        // 反查地名（仅展示，不强制）
+        fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&accept-language=zh')
+          .then(r=>r.json())
+          .then(d=>{
+            if(d&&d.display_name){
+              const parts = d.display_name.split(',');
+              const name = parts.slice(0,3).join(' ').trim();
+              document.getElementById('input-location').value = name;
+            }
+          }).catch(()=>{});
+      },
+      function(err){
+        btn.textContent = '📍';
+        btn.disabled = false;
+        const msgs = {
+          1: '用户拒绝授权（请在微信/浏览器【设置】中允许位置权限）',
+          2: '无法获取位置（可能因网络或设备问题）',
+          3: '定位超时（10秒无响应）'
+        };
+        console.warn("location error", err.code, err.message);
+        let msg = msgs[err.code] || '未知错误';
+        if (err.code === 1 && /http\:/.test(window.location.protocol)) {
+          msg += '<br><small>提示：当前页面为 HTTP，某些浏览器需要 HTTPS 才能定位</small>';
+        }
+        status.innerHTML = '❌ 定位失败：' + msg;
+        status.style.color = '#f66';
+      },
+      {timeout:10000, enableHighAccuracy:true}
+    );
+  });
 }
-
-// Toast 提示
-function showToast(msg){
-  let t = document.getElementById('toast');
-  if(!t){ t=document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
-  t.textContent = msg;
-  t.className = 'toast show';
-  clearTimeout(t._timer);
   t._timer = setTimeout(()=>t.className='toast',2000);
 }
 
