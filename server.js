@@ -192,7 +192,7 @@ const server = http.createServer((req, res) => {
   }
 
   // ── 静态文件服务 ─────────────────────────────────────────────────
-  let filePath = path.join('/root/.openclaw/workspace/lure-fishbook-h5',
+  let filePath = path.join(__dirname,
     req.url === '/' ? 'index.html' : req.url.split('?')[0]);
 
   fs.readFile(filePath, (err, data) => {
