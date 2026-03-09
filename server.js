@@ -7,6 +7,8 @@ const crypto = require('crypto');
 
 const PORT = process.env.PORT || 80;
 const GF_API = 'https://copilot.code.woa.com/server/openclaw/copilot-gateway/v1/chat/completions';
+// AI_PROXY_URL: 若设置，则把 /api/recognize 和 /api/vision 转发到此代理（用于 VPS 无法访问内网 API 的场景）
+const AI_PROXY_URL = process.env.AI_PROXY_URL || null;
 
 // 读取工蜂认证头（优先读 config.json，其次读本地 models.json）
 let GF_HEADERS = {};
@@ -120,6 +122,38 @@ const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
 
   if(req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  // ── AI 代理模式：若设置 AI_PROXY_URL，将所有 AI 请求转发到代理 ──
+  if(AI_PROXY_URL && req.method === 'POST' && (req.url === '/api/recognize' || req.url === '/api/vision')) {
+    const proxyUrl = new URL(req.url, AI_PROXY_URL);
+    let chunks = [];
+    req.on('data', d => chunks.push(d));
+    req.on('end', () => {
+      const body = Buffer.concat(chunks);
+      const proxyReq = http.request({
+        hostname: proxyUrl.hostname,
+        port: proxyUrl.port || 80,
+        path: proxyUrl.pathname,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': body.length }
+      }, proxyRes => {
+        let out = '';
+        proxyRes.on('data', c => out += c);
+        proxyRes.on('end', () => {
+          console.log(`[ai-proxy] ${req.url} → ${AI_PROXY_URL} status=${proxyRes.statusCode}`);
+          res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(out);
+        });
+      });
+      proxyReq.on('error', e => {
+        console.error(`[ai-proxy] error: ${e.message}`);
+        res.writeHead(502); res.end(JSON.stringify({error: 'proxy error: ' + e.message}));
+      });
+      proxyReq.write(body);
+      proxyReq.end();
+    });
+    return;
+  }
 
   // ── 新架构：POST /api/recognize ──────────────────────────────────
   // 接收图片 base64，异步识别，返回任务 ID
