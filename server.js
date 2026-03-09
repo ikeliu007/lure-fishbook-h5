@@ -201,15 +201,6 @@ const server = http.createServer((req, res) => {
       });
       proxyReq.write(body);
       proxyReq.end();
-        if(!res.headersSent) { res.writeHead(502); res.end(JSON.stringify({error: 'proxy error: ' + e.message})); }
-      });
-      proxyReq.on('timeout', () => {
-        console.error(`[ai-proxy] timeout for ${req.url}`);
-        proxyReq.destroy();
-        if(!res.headersSent) { res.writeHead(504); res.end(JSON.stringify({error: 'proxy timeout'})); }
-      });
-      if(req.method !== 'GET') proxyReq.write(body);
-      proxyReq.end();
     });
     return;
   }
