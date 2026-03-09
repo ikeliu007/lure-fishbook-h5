@@ -44,6 +44,7 @@ const MIME = {
 
 // 识别任务存储（内存）
 const tasks = {};
+const tasks_map = {}; // VPS 代理模式：外部 taskId → 内网 taskId 的映射
 
 // 调用工蜂 Vision API（服务端直接调用，无跨域问题）
 function callGongfengVision(base64Data, prompt) {
@@ -131,11 +132,73 @@ const server = http.createServer((req, res) => {
     req.on('data', d => chunks.push(d));
     req.on('end', () => {
       const body = Buffer.concat(chunks);
+
+      // /api/recognize：立即生成 taskId 返回给前端，异步转发到内网代理
+      if(req.url === '/api/recognize') {
+        const taskId = require('crypto').randomUUID ? require('crypto').randomUUID() : Date.now().toString(36);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ taskId }));
+        console.log(`[ai-proxy] /api/recognize 立即返回 taskId=${taskId}，异步转发到 ${AI_PROXY_URL}`);
+        // 异步转发：把原始图片 + taskId 发到内网，内网处理完把结果存到本地 tasks
+        const innerBody = Buffer.from(JSON.stringify({ ...JSON.parse(body.toString()), taskId }));
+        const proxyReq = http.request({
+          hostname: proxyUrl.hostname, port: proxyUrl.port || 80,
+          path: '/api/recognize', method: 'POST', timeout: 60000,
+          headers: { 'Content-Type': 'application/json', 'Content-Length': innerBody.length }
+        }, proxyRes => {
+          let out = '';
+          proxyRes.on('data', c => out += c);
+          proxyRes.on('end', () => {
+            console.log(`[ai-proxy] 内网 /api/recognize 完成 status=${proxyRes.statusCode}`);
+            // 把内网返回的真实 taskId 存到本地映射
+            try {
+              const d = JSON.parse(out);
+              if(d.taskId) tasks_map[taskId] = d.taskId;
+            } catch(e) {}
+          });
+        });
+        proxyReq.on('error', e => console.error(`[ai-proxy] async error: ${e.message}`));
+        proxyReq.on('timeout', () => { proxyReq.destroy(); console.error(`[ai-proxy] async timeout`); });
+        proxyReq.write(innerBody);
+        proxyReq.end();
+        return;
+      }
+
+      // /api/recog-result：查询时把我们的 taskId 映射到内网的 taskId
+      if(req.url.startsWith('/api/recog-result')) {
+        const urlObj = new URL(req.url, 'http://localhost');
+        const clientTaskId = urlObj.searchParams.get('id');
+        const innerTaskId = tasks_map[clientTaskId] || clientTaskId;
+        const innerPath = '/api/recog-result?id=' + innerTaskId;
+        const pollReq = http.request({
+          hostname: proxyUrl.hostname, port: proxyUrl.port || 80,
+          path: innerPath, method: 'GET', timeout: 10000
+        }, pollRes => {
+          let out = '';
+          pollRes.on('data', c => out += c);
+          pollRes.on('end', () => {
+            res.writeHead(pollRes.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(out);
+          });
+        });
+        pollReq.on('error', e => {
+          if(!res.headersSent) { res.writeHead(502); res.end(JSON.stringify({status:'error',error:e.message})); }
+        });
+        pollReq.on('timeout', () => {
+          pollReq.destroy();
+          if(!res.headersSent) { res.writeHead(200); res.end(JSON.stringify({status:'pending'})); }
+        });
+        pollReq.end();
+        return;
+      }
+
+      // 其他 AI 路由（/api/vision）同步代理
       const proxyReq = http.request({
         hostname: proxyUrl.hostname,
         port: proxyUrl.port || 80,
         path: proxyUrl.pathname + (proxyUrl.search || ''),
         method: req.method,
+        timeout: 30000,
         headers: req.method === 'GET'
           ? {}
           : { 'Content-Type': 'application/json', 'Content-Length': body.length }
@@ -150,7 +213,12 @@ const server = http.createServer((req, res) => {
       });
       proxyReq.on('error', e => {
         console.error(`[ai-proxy] error: ${e.message}`);
-        res.writeHead(502); res.end(JSON.stringify({error: 'proxy error: ' + e.message}));
+        if(!res.headersSent) { res.writeHead(502); res.end(JSON.stringify({error: 'proxy error: ' + e.message})); }
+      });
+      proxyReq.on('timeout', () => {
+        console.error(`[ai-proxy] timeout for ${req.url}`);
+        proxyReq.destroy();
+        if(!res.headersSent) { res.writeHead(504); res.end(JSON.stringify({error: 'proxy timeout'})); }
       });
       if(req.method !== 'GET') proxyReq.write(body);
       proxyReq.end();
@@ -242,6 +310,19 @@ const server = http.createServer((req, res) => {
       headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
       headers['Pragma'] = 'no-cache';
       headers['Expires'] = '0';
+      // 若设置了 AI_PROXY_URL，则在 HTML 里注入 AI_ENDPOINT 使手机直接走隧道
+      // 若未设置，AI_ENDPOINT 默认为 window.location.origin（同源）
+      if(AI_PROXY_URL) {
+        let html = data.toString();
+        // 将 AI_ENDPOINT 注入为隧道地址（手机→VPS→隧道→本机的中转）
+        // 实际上 AI 请求仍走 VPS（/api/recognize），但通过代理转发到隧道
+        // 注入版本和代理模式标记
+        html = html.replace(
+          "window.AI_ENDPOINT = window.AI_ENDPOINT || window.location.origin;",
+          "window.AI_ENDPOINT = window.location.origin; // 代理模式：AI请求经VPS转发到内网"
+        );
+        data = Buffer.from(html);
+      }
     }
     res.writeHead(200, headers);
     res.end(data);

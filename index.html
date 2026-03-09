@@ -9,6 +9,11 @@
 <title>电子鱼护 · 路亚图鉴</title>
 <style>
 /* ===== 全局 ===== */
+/* 应用版本 stamp (1.0.1) - 请随更新递增，防止浏览器缓存 */
+window.APP_VERSION = '1.0.2-20260309';
+// AI_ENDPOINT: 若设置，AI 识别请求发到此地址（默认同源）
+// 可在 VPS 部署时由 server.js 注入，避免大图通过 SSH 隧道中转
+window.AI_ENDPOINT = window.AI_ENDPOINT || window.location.origin;
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{
   --bg:#0f0f1a;--bg2:#1a1a2e;--bg3:#111120;--bg4:#0d0d20;
@@ -1633,7 +1638,7 @@ function callVisionAPI(base64Data, prompt){
   // 步骤1：POST /api/recognize 提交图片，获取 taskId
   var recognizeUrl = window.location.origin + '/api/recognize';
   var resultUrl    = window.location.origin + '/api/recog-result';
-  console.log('[recog] 提交识别任务到', recognizeUrl, '图片大小:', Math.round(base64Data.length/1024)+'KB');
+  console.log('[recog:'+window.APP_VERSION+'] 提交识别任务到', recognizeUrl, '图片大小:', Math.round(base64Data.length/1024)+'KB');
 
   return fetch(recognizeUrl, {
     method: 'POST',
@@ -1680,14 +1685,7 @@ var GONGFENG_AI = {
 };
 
 function localFishGuess(){
-  // 无API Key：不显示AI推荐，提示用户手动搜索
-  return {
-    identified: false,
-    top_matches: [],
-    size_estimate: null,
-    description: '',
-    note: ''
-  };
+  throw new Error('AI识别服务暂不可用，请检查网络或token配置。');
 }
 
 function showRecogResult(result){
