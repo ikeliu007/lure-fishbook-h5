@@ -1937,7 +1937,8 @@ function getLocation(){
     function(err){
       btn.textContent = '📍';
       btn.disabled = false;
-      const msgs = {1:'用户拒绝授权',2:'无法获取位置',3:'定位超时'};
+      const msgs = {1:"用户拒绝授权（请确保使用 HTTPS 或授权定位权限）",2:'用户拒绝授权',2:'无法获取位置',3:'定位超时'};
+      console.warn("location error", err.code, err.message);
       status.textContent = '❌ 定位失败：' + (msgs[err.code]||'未知错误');
       status.style.color = '#f66';
     },
