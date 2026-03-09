@@ -10,7 +10,7 @@
 <style>
 /* ===== 全局 ===== */
 /* 应用版本 stamp (1.0.1) - 请随更新递增，防止浏览器缓存 */
-window.APP_VERSION = '1.0.2-20260309';
+window.APP_VERSION = '1.0.1-20260309';
 // AI_ENDPOINT: 若设置，AI 识别请求发到此地址（默认同源）
 // 可在 VPS 部署时由 server.js 注入，避免大图通过 SSH 隧道中转
 window.AI_ENDPOINT = window.AI_ENDPOINT || window.location.origin;
@@ -1937,7 +1937,11 @@ function getLocation(){
     function(err){
       btn.textContent = '📍';
       btn.disabled = false;
-      const msgs = {1:"用户拒绝授权（请确保使用 HTTPS 或授权定位权限）",2:'用户拒绝授权',2:'无法获取位置',3:'定位超时'};
+      const msgs = {
+        1: '用户拒绝授权（请确保已在浏览器设置中允许定位权限）',
+        2: '无法获取位置（可能因网络或设备问题）',
+        3: '定位超时（10秒无响应）'
+      };
       console.warn("location error", err.code, err.message);
       status.textContent = '❌ 定位失败：' + (msgs[err.code]||'未知错误');
       status.style.color = '#f66';
