@@ -124,7 +124,8 @@ const server = http.createServer((req, res) => {
   if(req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   // ── AI 代理模式：若设置 AI_PROXY_URL，将所有 AI 请求转发到代理 ──
-  if(AI_PROXY_URL && req.method === 'POST' && (req.url === '/api/recognize' || req.url === '/api/vision')) {
+  const isAiRoute = (req.url === '/api/recognize' || req.url === '/api/vision' || req.url.startsWith('/api/recog-result'));
+  if(AI_PROXY_URL && isAiRoute) {
     const proxyUrl = new URL(req.url, AI_PROXY_URL);
     let chunks = [];
     req.on('data', d => chunks.push(d));
@@ -133,14 +134,16 @@ const server = http.createServer((req, res) => {
       const proxyReq = http.request({
         hostname: proxyUrl.hostname,
         port: proxyUrl.port || 80,
-        path: proxyUrl.pathname,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': body.length }
+        path: proxyUrl.pathname + (proxyUrl.search || ''),
+        method: req.method,
+        headers: req.method === 'GET'
+          ? {}
+          : { 'Content-Type': 'application/json', 'Content-Length': body.length }
       }, proxyRes => {
         let out = '';
         proxyRes.on('data', c => out += c);
         proxyRes.on('end', () => {
-          console.log(`[ai-proxy] ${req.url} → ${AI_PROXY_URL} status=${proxyRes.statusCode}`);
+          console.log(`[ai-proxy] ${req.method} ${req.url} → ${AI_PROXY_URL} status=${proxyRes.statusCode}`);
           res.writeHead(proxyRes.statusCode, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
           res.end(out);
         });
@@ -149,7 +152,7 @@ const server = http.createServer((req, res) => {
         console.error(`[ai-proxy] error: ${e.message}`);
         res.writeHead(502); res.end(JSON.stringify({error: 'proxy error: ' + e.message}));
       });
-      proxyReq.write(body);
+      if(req.method !== 'GET') proxyReq.write(body);
       proxyReq.end();
     });
     return;
