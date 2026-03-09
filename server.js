@@ -5,7 +5,7 @@ const path = require('path');
 const { URL } = require('url');
 const crypto = require('crypto');
 
-const PORT = 8899;
+const PORT = process.env.PORT || 80;
 const GF_API = 'https://copilot.code.woa.com/server/openclaw/copilot-gateway/v1/chat/completions';
 
 // 读取工蜂认证头（优先读 config.json，其次读本地 models.json）
