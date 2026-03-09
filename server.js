@@ -192,8 +192,9 @@ const server = http.createServer((req, res) => {
   }
 
   // ── 静态文件服务 ─────────────────────────────────────────────────
+  const urlPath = req.url.split('?')[0]; // 去掉查询参数（兼容企业微信自动追加参数）
   let filePath = path.join(__dirname,
-    req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+    urlPath === '/' || urlPath === '' ? 'index.html' : urlPath);
 
   fs.readFile(filePath, (err, data) => {
     if(err) { res.writeHead(404); res.end('Not found'); return; }
