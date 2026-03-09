@@ -8,13 +8,28 @@ const crypto = require('crypto');
 const PORT = 8899;
 const GF_API = 'https://copilot.code.woa.com/server/openclaw/copilot-gateway/v1/chat/completions';
 
-// 读取工蜂认证头
+// 读取工蜂认证头（优先读 config.json，其次读本地 models.json）
 let GF_HEADERS = {};
 try {
-  const models = JSON.parse(fs.readFileSync('/projects/.openclaw/agents/main/agent/models.json','utf8'));
-  const visionModel = models.providers.gongfeng.models.find(m => m.id === 'auto-vision');
-  if(visionModel) GF_HEADERS = visionModel.headers;
-  console.log('✅ 工蜂认证头已加载, user:', GF_HEADERS['X-Username']);
+  // 方案1：读取 config.json（部署到 VPS 时使用）
+  const configPath = path.join(__dirname, 'config.json');
+  if(fs.existsSync(configPath)) {
+    const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    GF_HEADERS = {
+      'Accept': 'text/event-stream, application/json',
+      'X-Model-Name': 'auto-vision',
+      'X-Username': cfg.username,
+      'OAUTH-TOKEN': cfg.oauthToken,
+      'DEVICE-ID': cfg.deviceId
+    };
+    console.log('✅ 工蜂认证头已加载(config.json), user:', cfg.username);
+  } else {
+    // 方案2：读取本地 models.json（本地开发时使用）
+    const models = JSON.parse(fs.readFileSync('/projects/.openclaw/agents/main/agent/models.json','utf8'));
+    const visionModel = models.providers.gongfeng.models.find(m => m.id === 'auto-vision');
+    if(visionModel) GF_HEADERS = visionModel.headers;
+    console.log('✅ 工蜂认证头已加载(models.json), user:', GF_HEADERS['X-Username']);
+  }
 } catch(e) {
   console.warn('⚠️ 读取工蜂认证失败:', e.message);
 }
